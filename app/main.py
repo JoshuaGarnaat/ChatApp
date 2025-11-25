@@ -1,6 +1,7 @@
-import sqlite3
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+import sqlite3, re, time
 
 app = FastAPI()
 
@@ -24,23 +25,45 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Helper functions
+
+def validate_username(username: str):
+    if not re.match(r"^[A-Za-z0-9_]+$", username): # Check for special characters
+        raise HTTPException(400, "Username invalid")
+
+def validate_password(password: str):
+    if not re.match(r"^[A-Za-z0-9_]+$", password): # Check for special characters
+        raise HTTPException(400, "Password invalid")
+
+# Schemas
+
+class RegisterReq(BaseModel):
+    username: str = Field(..., min_length=5, max_length=20) # Set length
+    password: str = Field(..., min_length=8, max_length=128) # Set length
+
 # Routes
 
-@app.websocket("/ws/chat")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+@app.post("/register")
+def register(req: RegisterReq): # Handle registration
+    username = req.username
+    password = req.password
+    
+    # Validate values server-side
+    validate_username(username)
+    validate_password(password)
+
     try:
-        while True:
-            data = await websocket.receive_text()
-
-            # (username: message)
-            if ":" in data:
-                username, content = data.split(":", 1)
-                print(username, content)
-
-            await manager.broadcast(data)
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        conn = sqlite3.connect("data/chat.db")
+        query = "INSERT INTO users (username, password, time) VALUES (?, ?, ?)"
+        # Save username, password and time of registration
+        params = (username, password, int(time.time()))
+        conn.execute(query, params)
+        conn.commit()
+        conn.close()
+        return {"status": "ok"}
+    
+    except sqlite3.IntegrityError:
+        raise HTTPException(400, "Username already exists")
 
 # Serve static files like index.html, script.js, etc.
 

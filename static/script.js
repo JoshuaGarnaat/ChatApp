@@ -1,21 +1,46 @@
-let ws = new WebSocket("ws://localhost:8000/ws/chat");
 
-ws.onmessage = (event) => {
-    let messages = document.getElementById("messages");
-    let message = document.createElement("div");
-    message.innerText = event.data;
-    messages.appendChild(message);
-    messages.scrollTop = messages.scrollHeight;
-};
 
-function sendMessage() {
-    let username = document.getElementById("username").value.trim();
-    let messageInput = document.getElementById("messageInput");
-    let text = messageInput.value.trim();
-    console.log(username, text);
+// Helper functions
 
-    if (!username || !text) return;
+function isValidUsername(u) {
+    return (u.length >= 5 && u.length <= 20 && /^[A-Za-z0-9]*$/.test(u)); // Check length and characters
+}
 
-    ws.send(username + ": " + text);
-    messageInput.value = "";
+function isValidPassword(p) {
+    return (p.length >= 8 && p.length <= 128 && /^[A-Za-z0-9]*$/.test(p)); // Check length and characters
+}
+
+
+// API
+
+async function register() {
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+
+    // Client-side validation
+    if (!isValidUsername(username)) {
+        return alert("Username invalid");
+    }
+    if (!isValidPassword(password)) {
+        return alert("Password invalid");
+    }
+
+    try {
+        // Fetch
+        const response = await fetch("/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) {
+            return alert("Error: " + data.detail ?? data.message);
+        }
+
+        alert("Registration successful");
+    }
+    catch (e) {
+        alert("Error: " + e);
+    }
 }
