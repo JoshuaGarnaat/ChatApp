@@ -1,11 +1,11 @@
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import sqlite3, re, time
-
-app = FastAPI()
+import sqlite3, secrets, re, time
 
 STATUS_OK = {"status": "ok"}
+
+TOKEN_EXPIRATION_MINUTES = 60
 
 # WebSocket Manager
 
@@ -25,6 +25,10 @@ class ConnectionManager:
         for connection in self.active_connections:
             await connection.send_text(message)
 
+# FastAPI app
+app = FastAPI()
+
+# Websocket manager
 manager = ConnectionManager()
 
 # Helper functions
@@ -36,6 +40,12 @@ def validate_username(username: str):
 def validate_password(password: str):
     if not re.match(r"^[A-Za-z0-9_]+$", password): # Check for special characters
         raise HTTPException(400, "Password invalid")
+
+# Core Functions
+
+def db_connect():
+    conn = sqlite3.connect("data/chat.db", timeout=10, check_same_thread=False)
+    return conn
 
 # Schemas
 
@@ -55,18 +65,19 @@ def register(req: AuthReq): # Handle registration
     validate_password(password)
 
     try:
-        conn = sqlite3.connect("data/chat.db")
-        query = "INSERT INTO users (username, password, time) VALUES (?, ?, ?)"
-        # Save username, password and time of registration
-        params = (username, password, int(time.time()))
-        conn.execute(query, params)
-        conn.commit()
-        conn.close()
+        with db_connect() as conn:
+            cur = conn.cursor()
+            # Add values to db
+            cur.execute(
+                "INSERT INTO users (username, password, time) VALUES (?, ?, ?)",
+                (username, password, int(time.time()))
+            )
     
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Username already exists")
     
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        print(e)
         raise HTTPException(500, "Database Error")
     
     return STATUS_OK
@@ -81,20 +92,40 @@ def login(req: AuthReq): # Handle registration
     validate_password(password)
 
     try:
-        conn = sqlite3.connect("data/chat.db")
-        query = "SELECT * FROM users WHERE username = ? AND password = ?;"
-        # Check username and password
-        params = (username, password)
-        out = conn.execute(query, params).fetchall()
-        conn.close()
-    
+        with db_connect() as conn:
+            cur = conn.cursor()
+            # Check values in db
+            cur.execute(
+                "SELECT id FROM users WHERE username = ? AND password = ?",
+                (username, password)
+            )
+            row = cur.fetchone()
+
     except sqlite3.Error:
         raise HTTPException(500, "Database Error")
     
-    if len(out) == 0:
+    if row is None:
         raise HTTPException(401, "Invalid username or password")
+
+    user_id = row[0]
     
-    return STATUS_OK
+    token = secrets.token_hex(16)
+    created_at = int(time.time())
+    expires_at = created_at + TOKEN_EXPIRATION_MINUTES * 60
+    
+    try:
+        with db_connect() as conn:
+            cur = conn.cursor()
+            # Add values to db
+            cur.execute(
+                "INSERT INTO sessions (user_id, token, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                (user_id, token, created_at, expires_at)
+            )
+
+    except sqlite3.Error:
+        raise HTTPException(500, "Database Error")
+
+    return {"token": token, "expires_at": expires_at}
 
 # Serve static files like index.html, script.js, etc.
 

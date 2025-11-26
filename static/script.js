@@ -66,11 +66,10 @@ async function login() {
         });
         
         const data = await response.json();
-        if (!response.ok) {
-            return alert("Error: " + data.detail ?? data.message);
-        }
-
-        alert("Login successful");
+        // Store token for WebSocket authentication
+        localStorage.setItem("token", data.token);
+        var expire_date = new Date(data.expires_at * 1000);
+        alert("Login successful. Token expires at " + expire_date);
     }
     catch (e) {
         alert("Error: " + e);

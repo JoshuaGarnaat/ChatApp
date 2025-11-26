@@ -5,3 +5,13 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT NOT NULL,
     time INTEGER
 );
+
+-- Create sessions table
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
