@@ -5,6 +5,8 @@ import sqlite3, re, time
 
 app = FastAPI()
 
+STATUS_OK = {"status": "ok"}
+
 # WebSocket Manager
 
 class ConnectionManager:
@@ -37,14 +39,14 @@ def validate_password(password: str):
 
 # Schemas
 
-class RegisterReq(BaseModel):
+class AuthReq(BaseModel):
     username: str = Field(..., min_length=5, max_length=20) # Set length
     password: str = Field(..., min_length=8, max_length=128) # Set length
 
 # Routes
 
 @app.post("/register")
-def register(req: RegisterReq): # Handle registration
+def register(req: AuthReq): # Handle registration
     username = req.username
     password = req.password
     
@@ -60,10 +62,39 @@ def register(req: RegisterReq): # Handle registration
         conn.execute(query, params)
         conn.commit()
         conn.close()
-        return {"status": "ok"}
     
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Username already exists")
+    
+    except sqlite3.Error:
+        raise HTTPException(500, "Database Error")
+    
+    return STATUS_OK
+
+@app.post("/login")
+def login(req: AuthReq): # Handle registration
+    username = req.username
+    password = req.password
+    
+    # Validate values server-side
+    validate_username(username)
+    validate_password(password)
+
+    try:
+        conn = sqlite3.connect("data/chat.db")
+        query = "SELECT * FROM users WHERE username = ? AND password = ?;"
+        # Check username and password
+        params = (username, password)
+        out = conn.execute(query, params).fetchall()
+        conn.close()
+    
+    except sqlite3.Error:
+        raise HTTPException(500, "Database Error")
+    
+    if len(out) == 0:
+        raise HTTPException(401, "Invalid username or password")
+    
+    return STATUS_OK
 
 # Serve static files like index.html, script.js, etc.
 

@@ -14,8 +14,8 @@ function isValidPassword(p) {
 // API
 
 async function register() {
-    const username = document.getElementById("username").value;
-    const password = document.getElementById("password").value;
+    const username = document.getElementById("reg-username").value;
+    const password = document.getElementById("reg-password").value;
 
     // Client-side validation
     if (!isValidUsername(username)) {
@@ -39,6 +39,38 @@ async function register() {
         }
 
         alert("Registration successful");
+    }
+    catch (e) {
+        alert("Error: " + e);
+    }
+}
+
+async function login() {
+    const username = document.getElementById("log-username").value;
+    const password = document.getElementById("log-password").value;
+
+    // Client-side validation
+    if (!isValidUsername(username)) {
+        return alert("Username invalid");
+    }
+    if (!isValidPassword(password)) {
+        return alert("Password invalid");
+    }
+
+    try {
+        // Fetch
+        const response = await fetch("/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) {
+            return alert("Error: " + data.detail ?? data.message);
+        }
+
+        alert("Login successful");
     }
     catch (e) {
         alert("Error: " + e);
