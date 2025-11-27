@@ -1,7 +1,8 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import sqlite3, secrets, re, time
+from typing import Dict
+import sqlite3, json, secrets, re, time
 
 STATUS_OK = {"status": "ok"}
 
@@ -11,19 +12,21 @@ TOKEN_EXPIRATION_MINUTES = 60
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: Dict[int, WebSocket] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, user_id: int, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
-        print("Connected:", len(self.active_connections))
+        self.active_connections[user_id] = websocket
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+    def disconnect(self, user_id: int):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            del ws
 
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+    async def send_to_user(self, sender_id: int, user_id: int, message: str):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            await ws.send_json({"sender": sender_id, "message": message})
 
 # FastAPI app
 app = FastAPI()
@@ -47,6 +50,20 @@ def db_connect():
     conn = sqlite3.connect("data/chat.db", timeout=10, check_same_thread=False)
     return conn
 
+def get_user_from_token(token: str):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Get user_id from sessions with token
+        cur.execute(
+            "SELECT user_id FROM sessions WHERE token = ?",
+            (token,)
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+    return row[0]
+ 
 # Schemas
 
 class AuthReq(BaseModel):
@@ -126,6 +143,28 @@ def login(req: AuthReq): # Handle registration
         raise HTTPException(500, "Database Error")
 
     return {"token": token, "expires_at": expires_at}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websocket
+    user_id = get_user_from_token(token)
+    if not user_id:
+        await websocket.close()
+        return
+    
+    # Register connection
+    await manager.connect(user_id, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+
+            to_id = int(data.get("receiver"))
+            msg = data.get("message")
+            # Send message
+            await manager.send_to_user(user_id, to_id, msg)
+
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
 
 # Serve static files like index.html, script.js, etc.
 

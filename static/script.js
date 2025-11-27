@@ -1,4 +1,4 @@
-
+var ws = null;
 
 // Helper functions
 
@@ -13,6 +13,7 @@ function isValidPassword(p) {
 
 // API
 
+// Handle registration
 async function register() {
     const username = document.getElementById("reg-username").value;
     const password = document.getElementById("reg-password").value;
@@ -45,6 +46,7 @@ async function register() {
     }
 }
 
+// Handle login
 async function login() {
     const username = document.getElementById("log-username").value;
     const password = document.getElementById("log-password").value;
@@ -74,4 +76,23 @@ async function login() {
     catch (e) {
         alert("Error: " + e);
     }
+    connectWebSocket();
+}
+
+function connectWebSocket() {
+    var token = localStorage.getItem("token");
+    // Create a websocket
+    ws = new WebSocket(`${location.origin.replace("http", "ws")}/ws?token=${token}`);
+    // Run on message received
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log(data);
+    };
+}
+
+function sendMessage() {
+    const userid = document.getElementById("ws-userid").value;
+    const message = document.getElementById("ws-message").value;
+    // Send JSON containing the receiver userid and message
+    ws.send(JSON.stringify({"receiver": userid, "message": message}));
 }

@@ -6,7 +6,7 @@
 	"image": "mcr.microsoft.com/devcontainers/universal:latest",
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// Install python libraries after the container is created.
-	"postCreateCommand": "pip3 install fastapi uvicorn",
+	"postCreateCommand": "pip3 install fastapi uvicorn websockets",
 	// Open the browser when the port is forwarded
 	"portsAttributes": {
 		"8000": {
