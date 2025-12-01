@@ -79,6 +79,7 @@ async function login() {
     connectWebSocket();
 }
 
+// Connect and setup websocket
 function connectWebSocket() {
     var token = localStorage.getItem("token");
     // Create a websocket
@@ -90,9 +91,16 @@ function connectWebSocket() {
     };
 }
 
-function sendMessage() {
-    const userid = document.getElementById("ws-userid").value;
+// Send message
+async function sendMessage() {
+    const username = document.getElementById("ws-username").value;
     const message = document.getElementById("ws-message").value;
-    // Send JSON containing the receiver userid and message
-    ws.send(JSON.stringify({"receiver": userid, "message": message}));
+
+    // Client-side validation
+    if (!isValidUsername(username)) {
+        return alert("Username invalid");
+    }
+
+    // Send JSON containing the receiver username and message
+    ws.send(JSON.stringify({"receiver": username, "message": message}));
 }

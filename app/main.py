@@ -5,6 +5,7 @@ from typing import Dict
 import sqlite3, json, secrets, re, time
 
 STATUS_OK = {"status": "ok"}
+NON_EXISTENT_USERNAME = "Username does not exist"
 
 TOKEN_EXPIRATION_MINUTES = 60
 
@@ -14,19 +15,28 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[int, WebSocket] = {}
 
+    # Accept and add the websocket connection
     async def connect(self, user_id: int, websocket: WebSocket):
         await websocket.accept()
         self.active_connections[user_id] = websocket
 
+    # Disconnect and close a specific websocket connection 
     def disconnect(self, user_id: int):
         ws = self.active_connections.get(user_id)
         if ws:
             del ws
 
-    async def send_to_user(self, sender_id: int, user_id: int, message: str):
+    # Send a message to a specific user from a sender
+    async def send_message_to_user(self, sender_id: int, user_id: int, message: str):
         ws = self.active_connections.get(user_id)
         if ws:
             await ws.send_json({"sender": sender_id, "message": message})
+
+    # Send info to a user
+    async def send_info_to_user(self, user_id: int, info_msg: str):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            await ws.send_json({"info": info_msg})
 
 # FastAPI app
 app = FastAPI()
@@ -57,6 +67,20 @@ def get_user_from_token(token: str):
         cur.execute(
             "SELECT user_id FROM sessions WHERE token = ?",
             (token,)
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+    return row[0]
+
+def get_id_from_user(username: str):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Get id from users with username
+        cur.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (username,)
         )
         row = cur.fetchone()
 
@@ -158,10 +182,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
         while True:
             data = await websocket.receive_json()
 
-            to_id = int(data.get("receiver"))
+            receiver = data.get("receiver")
             msg = data.get("message")
-            # Send message
-            await manager.send_to_user(user_id, to_id, msg)
+            
+            # Validate values server-side
+            validate_username(receiver)
+
+            # Get id from username
+            receiver_id = get_id_from_user(receiver)
+            if receiver_id is None:
+                # Inform the client of incorrect receiver username
+                await manager.send_info_to_user(user_id, NON_EXISTENT_USERNAME)
+            else:
+                # Send the message
+                await manager.send_message_to_user(user_id, receiver_id, msg)
 
     except WebSocketDisconnect:
         manager.disconnect(user_id)
