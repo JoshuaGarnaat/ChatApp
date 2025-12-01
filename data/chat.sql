@@ -6,6 +6,17 @@ CREATE TABLE IF NOT EXISTS users (
     time INTEGER
 );
 
+-- Create messages table
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    time INTEGER,
+    FOREIGN KEY(sender_id) REFERENCES users(id),
+    FOREIGN KEY(receiver_id) REFERENCES users(id)
+);
+
 -- Create sessions table
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

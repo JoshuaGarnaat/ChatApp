@@ -194,6 +194,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                 # Inform the client of incorrect receiver username
                 await manager.send_info_to_user(user_id, NON_EXISTENT_USERNAME)
             else:
+                send_time = int(time.time())
+    
+                try:
+                    with db_connect() as conn:
+                        cur = conn.cursor()
+                        # Add values to db
+                        cur.execute(
+                            "INSERT INTO messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
+                            (user_id, receiver_id, msg, send_time)
+                        )
+
+                except sqlite3.Error:
+                    raise HTTPException(500, "Database Error")
+
                 # Send the message
                 await manager.send_message_to_user(user_id, receiver_id, msg)
 
