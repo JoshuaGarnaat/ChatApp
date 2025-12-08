@@ -76,12 +76,15 @@ async function login() {
     catch (e) {
         alert("Error: " + e);
     }
-    connectWebSocket();
+    var token = localStorage.getItem("token");
+    if (!token) {
+        alert("Token does not exist");
+    }
+    connectWebSocket(token);
 }
 
 // Connect and setup websocket
-function connectWebSocket() {
-    var token = localStorage.getItem("token");
+function connectWebSocket(token) {
     // Create a websocket
     ws = new WebSocket(`${location.origin.replace("http", "ws")}/ws?token=${token}`);
     // Run on message received
@@ -104,3 +107,10 @@ async function sendMessage() {
     // Send JSON containing the receiver username and message
     ws.send(JSON.stringify({"receiver": username, "message": message}));
 }
+
+// Check for token on start
+// var token = localStorage.getItem("token");
+// if (token) {
+//     // Start websocket if token available
+//     connectWebSocket(token);
+// }

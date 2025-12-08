@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Dict
+from typing import Dict, List
 import sqlite3, json, secrets, re, time
 
 STATUS_OK = {"status": "ok"}
@@ -13,29 +13,29 @@ TOKEN_EXPIRATION_MINUTES = 60
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Dict[int, WebSocket] = {}
+        self.active_connections: Dict[int, Dict[str, WebSocket]] = {}
 
     # Accept and add the websocket connection
-    async def connect(self, user_id: int, websocket: WebSocket):
+    async def connect(self, user_id: int, token: str, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections[user_id] = websocket
-
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = {}
+        self.active_connections[user_id][token] = websocket
+        
     # Disconnect and close a specific websocket connection 
-    def disconnect(self, user_id: int):
-        ws = self.active_connections.get(user_id)
-        if ws:
-            del ws
+    def disconnect(self, token: str, user_id: int):
+        self.active_connections.get(user_id).pop(token)
 
     # Send a message to a specific user from a sender
     async def send_message_to_user(self, sender_id: int, user_id: int, message: str):
-        ws = self.active_connections.get(user_id)
-        if ws:
+        websockets = self.active_connections.get(user_id)
+        for ws in websockets.values():
             await ws.send_json({"sender": sender_id, "message": message})
 
     # Send info to a user
     async def send_info_to_user(self, user_id: int, info_msg: str):
-        ws = self.active_connections.get(user_id)
-        if ws:
+        websockets = self.active_connections.get(user_id)
+        for ws in websockets.values():
             await ws.send_json({"info": info_msg})
 
 # FastAPI app
@@ -176,7 +176,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
         return
     
     # Register connection
-    await manager.connect(user_id, websocket)
+    await manager.connect(user_id, token, websocket)
 
     try:
         while True:
@@ -212,7 +212,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                 await manager.send_message_to_user(user_id, receiver_id, msg)
 
     except WebSocketDisconnect:
-        manager.disconnect(user_id)
+        manager.disconnect(token, user_id)
 
 # Serve static files like index.html, script.js, etc.
 
