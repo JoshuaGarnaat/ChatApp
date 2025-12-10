@@ -201,7 +201,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                         cur = conn.cursor()
                         # Add values to db
                         cur.execute(
-                            "INSERT INTO messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
+                            "INSERT INTO private_messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
                             (user_id, receiver_id, msg, send_time)
                         )
 
