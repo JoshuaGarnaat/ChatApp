@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from typing import Dict, List
 import sqlite3, json, secrets, re, time
 
+DEBUG = False
+
 STATUS_OK = {"status": "ok"}
 NON_EXISTENT_USERNAME = "Username does not exist"
 
@@ -25,18 +27,37 @@ class ConnectionManager:
     # Disconnect and close a specific websocket connection 
     def disconnect(self, token: str, user_id: int):
         self.active_connections.get(user_id).pop(token)
+    
+    async def safe_send(self, user_id: int, data: dict):
+        websockets = self.active_connections.get(user_id)
+        dead = []
+        for token, ws in websockets.items():
+            try:
+                await ws.send_json(data)
+            except:
+                dead.append(token)
+
+        # Remove all dead connections
+        for token in dead:
+            websockets.pop(token, None)
 
     # Send a message to a specific user from a sender
-    async def send_message_to_user(self, sender_id: int, user_id: int, message: str):
-        websockets = self.active_connections.get(user_id)
-        for ws in websockets.values():
-            await ws.send_json({"sender": sender_id, "message": message})
+    async def send_message_to_user(self, message_id: int, sender_id: int, receiver_id: int, msg: str, send_time: int):
+        message_data = {
+            "id": message_id,
+            "type": "private",
+            "sender_id": sender_id,
+            "receiver_id": receiver_id,
+            "message": msg,
+            "time": send_time,
+        }
+        await self.safe_send(receiver_id, message_data)
+        await self.safe_send(sender_id, message_data)
 
     # Send info to a user
     async def send_info_to_user(self, user_id: int, info_msg: str):
-        websockets = self.active_connections.get(user_id)
-        for ws in websockets.values():
-            await ws.send_json({"info": info_msg})
+        data = {"info": info_msg}
+        await self.safe_send(user_id, data)
 
 # FastAPI app
 app = FastAPI()
@@ -170,21 +191,24 @@ def login(req: AuthReq): # Handle registration
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websocket
-    user_id = get_user_from_token(token)
-    if not user_id:
+    sender_id = get_user_from_token(token)
+    if not sender_id:
         await websocket.close()
         return
     
     # Register connection
-    await manager.connect(user_id, token, websocket)
+    await manager.connect(sender_id, token, websocket)
 
     try:
         while True:
-            data = await websocket.receive_json()
+            # Check if the correct format was sent
+            try:
+                data = await websocket.receive_json()
+                receiver = data.get("receiver")
+                msg = data.get("message")
+            except:
+                return
 
-            receiver = data.get("receiver")
-            msg = data.get("message")
-            
             # Validate values server-side
             validate_username(receiver)
 
@@ -192,7 +216,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
             receiver_id = get_id_from_user(receiver)
             if receiver_id is None:
                 # Inform the client of incorrect receiver username
-                await manager.send_info_to_user(user_id, NON_EXISTENT_USERNAME)
+                await manager.send_info_to_user(sender_id, NON_EXISTENT_USERNAME)
             else:
                 send_time = int(time.time())
     
@@ -202,17 +226,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                         # Add values to db
                         cur.execute(
                             "INSERT INTO private_messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
-                            (user_id, receiver_id, msg, send_time)
+                            (sender_id, receiver_id, msg, send_time)
                         )
+                        message_id = cur.lastrowid
 
                 except sqlite3.Error:
                     raise HTTPException(500, "Database Error")
 
                 # Send the message
-                await manager.send_message_to_user(user_id, receiver_id, msg)
+                await manager.send_message_to_user(message_id, sender_id, receiver_id, msg, send_time)
 
     except WebSocketDisconnect:
-        manager.disconnect(token, user_id)
+        manager.disconnect(token, sender_id)
 
 # Serve static files like index.html, script.js, etc.
 
@@ -226,9 +251,12 @@ class NoCacheStaticFiles(StaticFiles):
             "Expires": "0"
         })
         return response
-
+    
 # Endpoint to serve static files
-app.mount("/", NoCacheStaticFiles(directory="static", html=True), name="static")
+if DEBUG:
+    app.mount("/", NoCacheStaticFiles(directory="static", html=True), name="static")
+else:
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 # Start server
 if __name__ == "__main__":

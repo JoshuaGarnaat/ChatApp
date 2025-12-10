@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Create groups table
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    groupname TEXT NOT NULL
+    groupname TEXT NOT NULL,
     created_at INTEGER
 );
 
