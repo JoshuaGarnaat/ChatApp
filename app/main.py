@@ -1,13 +1,18 @@
 from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Dict, List
-import sqlite3, json, secrets, re, time
+from typing import Dict
+from enum import Enum
+import sqlite3, logging, secrets, re, time
 
 DEBUG = False
 
 STATUS_OK = {"status": "ok"}
 NON_EXISTENT_USERNAME = "Username does not exist"
+
+SEND_MESSAGE = "SEND_MESSAGE"
+CREATE_GROUP = "CREATE_GROUP"
+JOIN_GROUP = "JOIN_GROUP"
 
 TOKEN_EXPIRATION_MINUTES = 60
 
@@ -75,6 +80,10 @@ def validate_password(password: str):
     if not re.match(r"^[A-Za-z0-9_]+$", password): # Check for special characters
         raise HTTPException(400, "Password invalid")
 
+def validate_groupname(groupname: str):
+    if not re.match(r"^[A-Za-z0-9_ ]+$", groupname): # Check for special characters, but allow spaces
+        raise HTTPException(400, "Groupname invalid")
+
 # Core Functions
 
 def db_connect():
@@ -90,10 +99,7 @@ def get_user_from_token(token: str):
             (token,)
         )
         row = cur.fetchone()
-
-    if row is None:
-        return None
-    return row[0]
+    return row[0] if row else None
 
 def get_id_from_user(username: str):
     with db_connect() as conn:
@@ -104,16 +110,57 @@ def get_id_from_user(username: str):
             (username,)
         )
         row = cur.fetchone()
+    return row[0] if row else None
 
-    if row is None:
-        return None
-    return row[0]
+def get_group_id(name: str):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Get id from groups with username
+        cur.execute(
+            "SELECT id FROM groups WHERE name = ?",
+            (name,)
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+def user_is_in_group(user_id: int, group_id: int):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Get id from groups with username
+        cur.execute(
+            "SELECT 1 FROM group_members WHERE user_id = ? AND group_id = ?",
+            (user_id, group_id)
+        )
+        return cur.fetchone() is not None
+
+def get_group_members(group_id: int):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM group_members WHERE group_id = ?", (group_id,))
+        return [row[0] for row in cur.fetchall()]
  
+def add_member_to_group(group_id, user_id: int):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Add values to db
+        cur.execute(
+            "INSERT INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)",
+            (group_id, user_id, int(time.time()))
+        )
+
 # Schemas
 
 class AuthReq(BaseModel):
     username: str = Field(..., min_length=5, max_length=20) # Set length
     password: str = Field(..., min_length=8, max_length=128) # Set length
+
+class CreateGroupReq(BaseModel):
+    token: str
+    groupname: str = Field(..., min_length=1, max_length=64) # Set length
+
+class JoinGroupReq(BaseModel):
+    token: str
+    groupToken: str
 
 # Routes
 
@@ -139,8 +186,8 @@ def register(req: AuthReq): # Handle registration
         raise HTTPException(400, "Username already exists")
     
     except sqlite3.Error as e:
-        print(e)
-        raise HTTPException(500, "Database Error")
+        logging.error("Database Error Register")
+        raise HTTPException(500, "Database Error Register")
     
     return STATUS_OK
 
@@ -164,7 +211,8 @@ def login(req: AuthReq): # Handle registration
             row = cur.fetchone()
 
     except sqlite3.Error:
-        raise HTTPException(500, "Database Error")
+        logging.error("Database Error Get Login")
+        raise HTTPException(500, "Database Error Get Login")
     
     if row is None:
         raise HTTPException(401, "Invalid username or password")
@@ -185,7 +233,7 @@ def login(req: AuthReq): # Handle registration
             )
 
     except sqlite3.Error:
-        raise HTTPException(500, "Database Error")
+        raise HTTPException(500, "Database Error Set Login")
 
     return {"token": token, "expires_at": expires_at}
 
@@ -202,39 +250,95 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
     try:
         while True:
             # Check if the correct format was sent
+            data = None
             try:
                 data = await websocket.receive_json()
-                receiver = data.get("receiver")
-                msg = data.get("message")
-            except:
+            except Exception as e:
+                logging.warning("Websocket receive json error")
                 return
+            
+            # Check for None
+            if data is None:
+                logging.error("Data is None")
+                return
+            
+            req_type = data.get("req_type")
+            if req_type is None:
+                logging.error("Request type is None")
+                return
+            
+            # Send Message Request
+            if req_type == SEND_MESSAGE:
+                # Get values from data
+                receiver = data.get("receiver")
+                message = data.get("message")
 
-            # Validate values server-side
-            validate_username(receiver)
+                # Check for None
+                if receiver is None:
+                    logging.error("Message Receiver is None")
+                    return
+                if message is None:
+                    logging.error("Message is None")
+                    return
+                
+                # Validate values server-side
+                validate_username(receiver)
 
-            # Get id from username
-            receiver_id = get_id_from_user(receiver)
-            if receiver_id is None:
-                # Inform the client of incorrect receiver username
-                await manager.send_info_to_user(sender_id, NON_EXISTENT_USERNAME)
-            else:
-                send_time = int(time.time())
-    
+                # Get id from username
+                receiver_id = get_id_from_user(receiver)
+                if receiver_id is None:
+                    # Inform the client of incorrect receiver username
+                    await manager.send_info_to_user(sender_id, NON_EXISTENT_USERNAME)
+                else:
+                    send_time = int(time.time())
+                    try:
+                        with db_connect() as conn:
+                            cur = conn.cursor()
+                            # Add values to db
+                            cur.execute(
+                                "INSERT INTO private_messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
+                                (sender_id, receiver_id, message, send_time)
+                            )
+                            message_id = cur.lastrowid
+
+                    except sqlite3.Error as e:
+                        logging.error(e)
+                        raise HTTPException(500, "Database Error Send Message")
+
+                    # Send the message
+                    await manager.send_message_to_user(message_id, sender_id, receiver_id, message, send_time)
+
+            # Create Group Request
+            elif req_type == CREATE_GROUP:
+                # Get values from data
+                groupname = data.get("groupname")
+
+                # Check for None
+                if groupname is None:
+                    logging.error("Groupname is None")
+                    continue
+
+                # Validate values server-side
+                validate_groupname(groupname)
+
+                created_time = int(time.time())
                 try:
                     with db_connect() as conn:
                         cur = conn.cursor()
                         # Add values to db
                         cur.execute(
-                            "INSERT INTO private_messages (sender_id, receiver_id, message, time) VALUES (?, ?, ?, ?)",
-                            (sender_id, receiver_id, msg, send_time)
+                            "INSERT INTO groups (groupname, created_at) VALUES (?, ?)",
+                            (groupname, created_time)
                         )
-                        message_id = cur.lastrowid
+                        group_id = cur.lastrowid
+                    add_member_to_group(group_id, sender_id)
+                
+                except sqlite3.Error as e:
+                    logging.error(e)
+                    raise HTTPException(500, "Database Error Create Group")
 
-                except sqlite3.Error:
-                    raise HTTPException(500, "Database Error")
-
-                # Send the message
-                await manager.send_message_to_user(message_id, sender_id, receiver_id, msg, send_time)
+                # Send confirmation
+                await manager.send_info_to_user(sender_id, "Group created")
 
     except WebSocketDisconnect:
         manager.disconnect(token, sender_id)

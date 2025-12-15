@@ -1,5 +1,9 @@
 var ws = null;
 
+const SEND_MESSAGE = "SEND_MESSAGE";
+const CREATE_GROUP = "CREATE_GROUP";
+const JOIN_GROUP = "JOIN_GROUP";
+
 // Helper functions
 
 function isValidUsername(u) {
@@ -10,6 +14,9 @@ function isValidPassword(p) {
     return (p.length >= 8 && p.length <= 128 && /^[A-Za-z0-9]*$/.test(p)); // Check length and characters
 }
 
+function isValidGroupname(u) {
+    return (u.length >= 1 && u.length <= 64 && /^[A-Za-z0-9 ]*$/.test(u)); // Check length and characters, but allow spaces
+}
 
 // API
 
@@ -104,8 +111,20 @@ async function sendMessage() {
         return alert("Username invalid");
     }
 
-    // Send JSON containing the receiver username and message
-    ws.send(JSON.stringify({"receiver": username, "message": message}));
+    // Send JSON containing the request type, receiver, username and message
+    ws.send(JSON.stringify({"req_type": SEND_MESSAGE, "receiver": username, "message": message}));
+}
+
+async function createGroup() {
+    const groupname = document.getElementById("cr-groupname").value;
+    
+    // Client-side validation
+    if (!isValidGroupname(groupname)) {
+        return alert("Groupname invalid");
+    }
+
+    // Send JSON containing the request type and groupname
+    ws.send(JSON.stringify({"req_type": CREATE_GROUP ,"groupname": groupname}));
 }
 
 // Check for token on start
