@@ -124,7 +124,14 @@ async function createGroup() {
     }
 
     // Send JSON containing the request type and groupname
-    ws.send(JSON.stringify({"req_type": CREATE_GROUP ,"groupname": groupname}));
+    ws.send(JSON.stringify({"req_type": CREATE_GROUP, "groupname": groupname}));
+}
+
+async function joinGroup() {
+    const grouptoken = document.getElementById("cr-grouptoken").value;
+
+    // Send JSON containing the request type and groupname
+    ws.send(JSON.stringify({"req_type": JOIN_GROUP, "grouptoken": grouptoken}));
 }
 
 // Check for token on start

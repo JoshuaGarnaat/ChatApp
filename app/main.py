@@ -139,7 +139,7 @@ def get_group_members(group_id: int):
         cur.execute("SELECT user_id FROM group_members WHERE group_id = ?", (group_id,))
         return [row[0] for row in cur.fetchall()]
  
-def add_member_to_group(group_id, user_id: int):
+def add_member_to_group(user_id: int, group_id: int):
     with db_connect() as conn:
         cur = conn.cursor()
         # Add values to db
@@ -331,14 +331,37 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                             (groupname, created_time)
                         )
                         group_id = cur.lastrowid
-                    add_member_to_group(group_id, sender_id)
+                    add_member_to_group(sender_id, group_id)
                 
                 except sqlite3.Error as e:
                     logging.error(e)
                     raise HTTPException(500, "Database Error Create Group")
 
+                # Send token
+                await manager.send_info_to_user(sender_id, group_id)
+
+            elif req_type == JOIN_GROUP:
+                # Get values from data
+                grouptoken = data.get("grouptoken")
+
+                # Check for None
+                if grouptoken is None:
+                    logging.error("Grouptoken is None")
+                    continue
+                group_id = grouptoken
+
+                if user_is_in_group(sender_id, group_id):
+                    await manager.send_info_to_user(sender_id, "Already in group")
+                    continue
+
+                try:
+                    add_member_to_group(sender_id, group_id)
+                except sqlite3.Error as e:
+                    logging.error(e)
+                    raise HTTPException(500, "Database Error Join Group")
+
                 # Send confirmation
-                await manager.send_info_to_user(sender_id, "Group created")
+                await manager.send_info_to_user(sender_id, "Group joined")
 
     except WebSocketDisconnect:
         manager.disconnect(token, sender_id)
