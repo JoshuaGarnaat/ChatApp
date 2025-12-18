@@ -112,13 +112,13 @@ def get_id_from_user(username: str):
         row = cur.fetchone()
     return row[0] if row else None
 
-def get_group_id(name: str):
+def get_group_id_from_token(grouptoken: str):
     with db_connect() as conn:
         cur = conn.cursor()
         # Get id from groups with username
         cur.execute(
-            "SELECT id FROM groups WHERE name = ?",
-            (name,)
+            "SELECT id FROM groups WHERE grouptoken = ?",
+            (grouptoken,)
         )
         row = cur.fetchone()
     return row[0] if row else None
@@ -315,20 +315,21 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
 
                 # Check for None
                 if groupname is None:
-                    logging.error("Groupname is None")
+                    logging.warning("Groupname is None")
                     continue
 
                 # Validate values server-side
                 validate_groupname(groupname)
-
+                
+                grouptoken = secrets.token_hex(16)
                 created_time = int(time.time())
                 try:
                     with db_connect() as conn:
                         cur = conn.cursor()
                         # Add values to db
                         cur.execute(
-                            "INSERT INTO groups (groupname, created_at) VALUES (?, ?)",
-                            (groupname, created_time)
+                            "INSERT INTO groups (grouptoken, groupname, created_at) VALUES (?, ?, ?)",
+                            (grouptoken, groupname, created_time)
                         )
                         group_id = cur.lastrowid
                     add_member_to_group(sender_id, group_id)
@@ -338,7 +339,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                     raise HTTPException(500, "Database Error Create Group")
 
                 # Send token
-                await manager.send_info_to_user(sender_id, group_id)
+                await manager.send_info_to_user(sender_id, grouptoken)
 
             elif req_type == JOIN_GROUP:
                 # Get values from data
@@ -346,9 +347,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
 
                 # Check for None
                 if grouptoken is None:
-                    logging.error("Grouptoken is None")
+                    logging.warning("Grouptoken is None")
                     continue
-                group_id = grouptoken
+
+                group_id = get_group_id_from_token(grouptoken)
+            
+                # Check for None
+                if group_id is None:
+                    logging.warning("Grouptoken is not valid")
+                    await manager.send_info_to_user(sender_id, "Grouptoken is not valid")
+                    continue
 
                 if user_is_in_group(sender_id, group_id):
                     await manager.send_info_to_user(sender_id, "Already in group")
