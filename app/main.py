@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Dict
@@ -13,6 +14,7 @@ NON_EXISTENT_USERNAME = "Username does not exist"
 SEND_MESSAGE = "SEND_MESSAGE"
 CREATE_GROUP = "CREATE_GROUP"
 JOIN_GROUP = "JOIN_GROUP"
+SEND_GROUP_MESSAGE = "SEND_GROUP_MESSAGE"
 
 TOKEN_EXPIRATION_MINUTES = 60
 
@@ -48,11 +50,15 @@ class ConnectionManager:
 
     # Send a message to a specific user from a sender
     async def send_message_to_user(self, message_id: int, sender_id: int, receiver_id: int, msg: str, send_time: int):
+        sender = get_user_from_id(sender_id)
+        receiver = get_user_from_id(receiver_id)
+        if not sender or not receiver:
+            return
         message_data = {
             "id": message_id,
             "type": "private",
-            "sender_id": sender_id,
-            "receiver_id": receiver_id,
+            "sender": sender,
+            "receiver": receiver,
             "message": msg,
             "time": send_time,
         }
@@ -108,6 +114,17 @@ def get_id_from_user(username: str):
         cur.execute(
             "SELECT id FROM users WHERE username = ?",
             (username,)
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+def get_user_from_id(id):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Get id from users with username
+        cur.execute(
+            "SELECT username FROM users WHERE id = ?",
+            (id,)
         )
         row = cur.fetchone()
     return row[0] if row else None
@@ -237,6 +254,33 @@ def login(req: AuthReq): # Handle registration
 
     return {"token": token, "expires_at": expires_at}
 
+@app.get("/messages")
+def get_messages(token: str):
+    user_id = get_user_from_token(token)
+    if not user_id:
+        raise HTTPException(401, "Invalid token")
+    
+    with db_connect() as conn:
+        cur = conn.cursor()
+        # Fetch all messages where the user is sender or receiver
+        cur.execute("""
+            SELECT sender_id, receiver_id, message, time 
+            FROM private_messages 
+            WHERE sender_id = ? OR receiver_id = ? 
+            ORDER BY time ASC
+        """, (user_id, user_id))
+        rows = cur.fetchall()
+    
+    messages = []
+    for sender_id, receiver_id, message, ts in rows:
+        messages.append({
+            "sender": get_user_from_id(sender_id),
+            "receiver": get_user_from_id(receiver_id),
+            "message": message,
+            "time": ts
+        })
+    return JSONResponse(content=messages)
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websocket
     sender_id = get_user_from_token(token)
@@ -290,6 +334,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                     # Inform the client of incorrect receiver username
                     await manager.send_info_to_user(sender_id, NON_EXISTENT_USERNAME)
                 else:
+                    if receiver_id == sender_id:
+                        continue
                     send_time = int(time.time())
                     try:
                         with db_connect() as conn:
@@ -341,6 +387,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
                 # Send token
                 await manager.send_info_to_user(sender_id, grouptoken)
 
+            # Join Group Request
             elif req_type == JOIN_GROUP:
                 # Get values from data
                 grouptoken = data.get("grouptoken")
@@ -370,6 +417,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str): # Handle websock
 
                 # Send confirmation
                 await manager.send_info_to_user(sender_id, "Group joined")
+
+            # Send Group Message Request
+            # elif req_type == SEND_GROUP_MESSAGE:
+                
 
     except WebSocketDisconnect:
         manager.disconnect(token, sender_id)

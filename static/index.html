@@ -5,28 +5,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatApp</title>
-    <script src="/script.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
 </head>
 
 <body>
-    <div id="chat-container">
-        <h2>Test</h2>
+    <div id="login-container">
+        <h2>ChatApp</h2>
+        <div class="form-section">
+            <input id="reg-username" placeholder="Username" />
+            <input id="reg-password" type="password" placeholder="Password" />
+            <button onclick="register()">Register</button>
+        </div>
+        <div class="form-section">
+            <input id="log-username" placeholder="Username" />
+            <input id="log-password" type="password" placeholder="Password" />
+            <button onclick="login()">Login</button>
+        </div>
+    </div>
 
+    <div id="chat-container" class="hidden">
+        <div id="chat-header">
+            <span id="current-user"></span>
+            <button onclick="logout()">Logout</button>
+        </div>
+        <div id="conversation-tabs"></div>
         <div id="messages"></div>
-        <input id="reg-username" placeholder="Username" />
-        <input id="reg-password" placeholder="Password" />
-        <button onclick="register()">Register</button>
-        <input id="log-username" placeholder="Username" />
-        <input id="log-password" placeholder="Password" />
-        <button onclick="login()">Login</button>
-        <input id="ws-username" placeholder="Username" />
-        <input id="ws-message" placeholder="Message" />
-        <button onclick="sendMessage()">Send</button>
-        <input id="cr-groupname" placeholder="Groupname" />
-        <button onclick="createGroup()">Create</button>
-        <input id="cr-grouptoken" placeholder="Grouptoken" />
-        <button onclick="joinGroup()">Join</button>
-        <p id="test"></p>
+        <div id="send-section">
+            <input id="ws-username" placeholder="Username" />
+            <input id="ws-message" placeholder="Message" />
+            <button onclick="sendMessage()">Send</button>
+        </div>
     </div>
 </body>
 
